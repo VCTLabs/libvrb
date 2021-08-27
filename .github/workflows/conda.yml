@@ -1,0 +1,59 @@
+name: Conda
+
+on:
+  workflow_dispatch:
+  pull_request:
+  push:
+    branches:
+      - master
+    paths-ignore:
+      - '**.md'
+      - '**.rst'
+      - '**.sh'
+
+jobs:
+  build:
+    name: libvrb ${{ matrix.python-version }} ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: ['ubuntu-latest', 'macos-latest']
+        python-version: ['3.7']
+        include:
+          - os: 'ubuntu-latest'
+            generator: 'Ninja'
+            build_type: 'RelWithDebInfo'
+          - os: 'macos-latest'
+            generator: 'Ninja'
+            build_type: 'RelWithDebInfo'
+
+    steps:
+    - uses: actions/checkout@v2
+
+    - name: setup miniconda
+      uses: conda-incubator/setup-miniconda@v2
+      with:
+        auto-update-conda: true
+        python-version: ${{ matrix.python-version }}
+        channels: conda-forge
+        channel-priority: strict
+
+    - name: install prerequisites
+      shell: pwsh
+      run: conda install cmake ninja c-compiler
+
+    - name: print info
+      shell: pwsh
+      run: |
+        conda info
+        conda list
+    - name: build and test
+      shell: pwsh
+      run: >
+        ctest
+        --build-config "${{ matrix.build_type }}"
+        --build-generator "${{ matrix.generator }}"
+        --build-and-test . build
+        -DCMAKE_INSTALL_PREFIX:PATH=$env:CONDA_PREFIX
+        --test-command ctest -V --build-config "${{ matrix.build_type }}"
