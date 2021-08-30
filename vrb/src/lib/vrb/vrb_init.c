@@ -208,6 +208,7 @@ vrb_init_opt (
 
     vrb_p	vrb_ptr		;
 
+    size_t	align_space     ;
     size_t	guard		;
     size_t	page_size	;
     size_t	req_size	;
@@ -240,6 +241,11 @@ vrb_init_opt (
 		! ( mem_ptr = getenv( "VRBGUARD" ) ) ||
 		( mem_ptr[0] == '0' && mem_ptr[1] == 0 ) ) )
 	? 0 : page_size;
+
+    // On some architectures SHMLBA is larger than page size,
+    // in which case extra space is requested so the pointer returned 
+    // by mmap can be aligned to SHLMBA.
+    align_space = (page_size == SHMLBA) ? 0 : SHMLBA;
 
     //----------------------------------------------------------------------
     // Make sure that the requested size is small enough so that arithmetic
@@ -274,10 +280,11 @@ vrb_init_opt (
     //------------------------------------------------------------------------
     // In order to place two virtual memory segments at adjacent locations, do
     // an anonymous mmap() call to find one contiguous space twice as large.
-    // This allocation also includes the guard pages if requested.
+    // This allocation also includes the guard pages if requested, and extra
+    // space to allow aligning start address if needed.
     //------------------------------------------------------------------------
     mem_ptr = (char *) mmap( 0, // no fixed ptr
-                             req_size + req_size + guard + guard,
+                             req_size + req_size + guard + guard + align_space,
                              PROT_NONE,
                              MAP_ANONYMOUS | MAP_PRIVATE,
                              -1, // no fd
@@ -285,8 +292,16 @@ vrb_init_opt (
     if ( mem_ptr == (char *) MAP_FAILED ) goto error_mmap_find;
     vrb_ptr->mem_ptr = mem_ptr;
 
-    vrb_ptr->lower_ptr = vrb_ptr->first_ptr = vrb_ptr->last_ptr =
+    //------------------------------------------------------------------------
+    // Ensure the start address is properly aligned, for the case where SHMLBA
+    // is a multiple of the page size (rather then being same as page size).
+    //------------------------------------------------------------------------
     lower_ptr = mem_ptr + guard;
+    if (align_space) {
+        lower_ptr += ( align_space - 1 );
+        lower_ptr -= (unsigned long)lower_ptr & ( align_space - 1 );
+    }
+    vrb_ptr->lower_ptr = vrb_ptr->first_ptr = vrb_ptr->last_ptr = lower_ptr;
 
     vrb_ptr->upper_ptr =
     upper_ptr = lower_ptr + req_size;
